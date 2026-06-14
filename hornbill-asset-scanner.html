@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Hornbill Asset Scanner — PoC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --line:#262d36; --txt:#e6edf3;
+    --muted:#8b949e; --accent:#d4a533; --accent2:#1f6feb; --ok:#2ea043; --warn:#d29922; --err:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--txt);line-height:1.45;-webkit-font-smoothing:antialiased}
+  header{padding:18px 16px 12px;border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:17px;letter-spacing:.2px}
+  header p{margin:4px 0 0;font-size:12.5px;color:var(--muted)}
+  header .tag{color:var(--accent);font-weight:600}
+  main{max-width:680px;margin:0 auto;padding:14px 16px 60px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+  input,select{width:100%;background:#0d1117;border:1px solid var(--line);color:var(--txt);
+    border-radius:8px;padding:9px 10px;font-size:14px}
+  input:focus,select:focus{outline:none;border-color:var(--accent2)}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  button{cursor:pointer;border:none;border-radius:8px;padding:10px 14px;font-size:14px;font-weight:600;color:#fff;background:var(--accent2)}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+  button.gold{background:var(--accent);color:#1a1205}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}
+  .seg button{flex:1;background:transparent;color:var(--muted);border-radius:0;font-weight:600}
+  .seg button.on{background:var(--accent2);color:#fff}
+  #reader{border-radius:10px;overflow:hidden;margin-top:8px;background:#000;min-height:60px}
+  .result{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px}
+  .result.hit{border-color:var(--ok)} .result.miss{border-color:var(--err)} .result.multi{border-color:var(--warn)}
+  .result .nm{font-size:15px;font-weight:600}
+  .result .meta{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .result a.open{display:inline-block;margin-top:10px;text-decoration:none}
+  .basket-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .basket-item:last-child{border-bottom:none}
+  .pill{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+  .pill.ok{color:var(--ok);border-color:var(--ok)} .pill.err{color:var(--err);border-color:var(--err)} .pill.multi{color:var(--warn);border-color:var(--warn)}
+  .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:var(--muted);
+    max-height:130px;overflow:auto;background:#0d1117;border-radius:8px;padding:8px}
+  .muted{color:var(--muted);font-size:12.5px}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Hornbill Asset Scanner <span class="tag">· PoC</span></h1>
+  <p>Scan an asset barcode → resolve the record → open it in Hornbill, ready to edit.</p>
+</header>
+
+<main>
+  <!-- Settings -->
+  <div class="card">
+    <details id="settings">
+      <summary>Settings</summary>
+      <div class="row">
+        <div>
+          <label>Mode</label>
+          <select id="mode">
+            <option value="demo">Demo (built-in mock data)</option>
+            <option value="live">Live (via proxy)</option>
+          </select>
+        </div>
+        <div>
+          <label>Instance ID</label>
+          <input id="instance" placeholder="yourinstanceid" value="demoinstance" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Match field</label>
+          <select id="matchField">
+            <option value="h_asset_tag">h_asset_tag</option>
+            <option value="h_name">h_name</option>
+            <option value="h_custom_char1">h_custom_char1</option>
+            <option value="h_external_id">h_external_id</option>
+          </select>
+        </div>
+        <div>
+          <label>Proxy URL (live mode)</label>
+          <input id="proxyUrl" placeholder="https://yoursite.netlify.app/.netlify/functions/hornbill-lookup" />
+        </div>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        Demo tags to try: <b>WW-LT-0421</b>, <b>WW-MON-1180</b>, <b>WW-DOCK-0099</b>, <b>DUPLICATE-TAG</b> (multi-match), anything else = no match.
+      </p>
+    </details>
+  </div>
+
+  <!-- Mode toggle -->
+  <div class="seg" id="scanMode">
+    <button data-m="single" class="on">Single asset</button>
+    <button data-m="bulk">Bulk basket</button>
+  </div>
+
+  <!-- Scanner -->
+  <div class="card">
+    <h2>Scan</h2>
+    <div class="btns">
+      <button id="startBtn">Start camera</button>
+      <button id="stopBtn" class="ghost" disabled>Stop</button>
+    </div>
+    <div id="reader"></div>
+    <label style="margin-top:12px">…or enter / simulate a tag</label>
+    <div class="row">
+      <input id="manualTag" placeholder="e.g. WW-LT-0421" />
+      <button id="manualBtn" class="gold" style="flex:0 0 auto">Look up</button>
+    </div>
+  </div>
+
+  <!-- Single result -->
+  <div class="card" id="singleCard">
+    <h2>Result</h2>
+    <div id="singleResult"><div class="empty">No scan yet.</div></div>
+  </div>
+
+  <!-- Bulk basket -->
+  <div class="card hide" id="bulkCard">
+    <h2>Basket</h2>
+    <div id="basket"><div class="empty">Scan or add tags to build a basket.</div></div>
+    <div class="btns">
+      <button id="resolveAll" disabled>Resolve all</button>
+      <button id="openAll" class="ghost" disabled>Open all in Hornbill</button>
+      <button id="bulkUpdate" class="ghost" disabled>Bulk update (API)</button>
+      <button id="clearBasket" class="ghost" disabled>Clear</button>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <h2>Activity</h2>
+    <div class="log" id="log"></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const els = {
+  mode:$("mode"), instance:$("instance"), matchField:$("matchField"), proxyUrl:$("proxyUrl"),
+  reader:$("reader"), startBtn:$("startBtn"), stopBtn:$("stopBtn"),
+  manualTag:$("manualTag"), manualBtn:$("manualBtn"),
+  singleCard:$("singleCard"), singleResult:$("singleResult"),
+  bulkCard:$("bulkCard"), basket:$("basket"),
+  resolveAll:$("resolveAll"), openAll:$("openAll"), bulkUpdate:$("bulkUpdate"), clearBasket:$("clearBasket"),
+  log:$("log")
+};
+
+let scanMode = "single";          // single | bulk
+let qr = null;                    // Html5Qrcode instance
+let lastTag = "", lastTs = 0;     // debounce duplicate frames
+const basket = [];                // [{tag, status, asset|null, matches}]
+
+function log(msg, kind=""){
+  const t = new Date().toLocaleTimeString();
+  const colour = kind==="err" ? "var(--err)" : kind==="ok" ? "var(--ok)" : "var(--muted)";
+  els.log.innerHTML = `<div style="color:${colour}">[${t}] ${msg}</div>` + els.log.innerHTML;
+}
+
+// ---- Demo data ----
+const DEMO = {
+  "WW-LT-0421":   {h_pk_asset_id:"AST-1001", h_name:"WW-LAPTOP-0421", h_type:"Laptop",  h_asset_tag:"WW-LT-0421"},
+  "WW-MON-1180":  {h_pk_asset_id:"AST-1002", h_name:"Dell U2723 Monitor", h_type:"Monitor", h_asset_tag:"WW-MON-1180"},
+  "WW-DOCK-0099": {h_pk_asset_id:"AST-1003", h_name:"WD19 Dock", h_type:"Docking Station", h_asset_tag:"WW-DOCK-0099"},
+};
+// "DUPLICATE-TAG" returns two matches to exercise the multi-match path.
+
+// ---- Lookup: returns { matches: [ {assetId,name,type,tag}, ... ] } ----
+async function lookup(tag){
+  const matchField = els.matchField.value;
+  if (els.mode.value === "demo"){
+    await new Promise(r=>setTimeout(r,250)); // feel of a round-trip
+    if (tag === "DUPLICATE-TAG"){
+      return {matches:[
+        {assetId:"AST-2001", name:"Shared Asset A", type:"Laptop", tag},
+        {assetId:"AST-2002", name:"Shared Asset B", type:"Laptop", tag},
+      ]};
+    }
+    const a = DEMO[tag];
+    return {matches: a ? [{assetId:a.h_pk_asset_id, name:a.h_name, type:a.h_type, tag:a.h_asset_tag}] : []};
+  }
+  // live mode -> proxy
+  const url = els.proxyUrl.value.trim();
+  if (!url) throw new Error("Set a Proxy URL in Settings for live mode.");
+  const res = await fetch(url, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({tag, matchField, instance: els.instance.value.trim()})
+  });
+  if (!res.ok) throw new Error("Proxy returned " + res.status);
+  return res.json(); // expects { matches: [...] }
+}
+
+function assetUrl(assetId){
+  const inst = els.instance.value.trim() || "yourinstanceid";
+  // Confirm this path against your instance: open one asset in the UI and copy the URL.
+  return `https://live.hornbill.com/${inst}/servicemanager/asset/view/${assetId}/`;
+}
+
+// ---- Single flow ----
+async function handleSingle(tag){
+  els.singleResult.innerHTML = `<div class="muted">Looking up “${tag}”…</div>`;
+  try{
+    const {matches} = await lookup(tag);
+    if (matches.length === 0){
+      els.singleResult.innerHTML = `<div class="result miss"><div class="nm">No match</div>
+        <div class="meta">No asset where <code>${els.matchField.value}</code> = “${tag}”.</div></div>`;
+      log(`No match for "${tag}"`, "err");
+    } else if (matches.length === 1){
+      const a = matches[0];
+      els.singleResult.innerHTML = `<div class="result hit">
+        <div class="nm">${a.name}</div>
+        <div class="meta">${a.type||"Asset"} · ID ${a.assetId} · tag ${a.tag||tag}</div>
+        <a class="open" href="${assetUrl(a.assetId)}" target="_blank" rel="noopener">
+          <button class="gold">Open in Hornbill ↗</button></a></div>`;
+      log(`Matched "${tag}" → ${a.assetId}`, "ok");
+    } else {
+      els.singleResult.innerHTML = `<div class="result multi">
+        <div class="nm">${matches.length} matches — pick one</div>` +
+        matches.map(a=>`<div class="basket-item"><span class="grow">${a.name} · ${a.assetId}</span>
+          <a href="${assetUrl(a.assetId)}" target="_blank" rel="noopener"><button class="ghost">Open ↗</button></a></div>`).join("") +
+        `</div>`;
+      log(`"${tag}" returned ${matches.length} matches`, "");
+    }
+  }catch(e){
+    els.singleResult.innerHTML = `<div class="result miss"><div class="nm">Error</div><div class="meta">${e.message}</div></div>`;
+    log("Error: " + e.message, "err");
+  }
+}
+
+// ---- Bulk flow ----
+function renderBasket(){
+  const has = basket.length > 0;
+  els.resolveAll.disabled = !has; els.clearBasket.disabled = !has;
+  const anyResolved = basket.some(b=>b.status==="hit");
+  els.openAll.disabled = !anyResolved; els.bulkUpdate.disabled = !anyResolved;
+  if (!has){ els.basket.innerHTML = `<div class="empty">Scan or add tags to build a basket.</div>`; return; }
+  els.basket.innerHTML = basket.map((b,i)=>{
+    let pill = `<span class="pill">pending</span>`;
+    if (b.status==="hit")   pill = `<span class="pill ok">${b.asset.assetId}</span>`;
+    if (b.status==="miss")  pill = `<span class="pill err">no match</span>`;
+    if (b.status==="multi") pill = `<span class="pill multi">${b.matches.length} matches</span>`;
+    const label = b.asset ? b.asset.name : b.tag;
+    return `<div class="basket-item"><span class="grow">${label}</span>${pill}
+      <button class="ghost" style="flex:0 0 auto;padding:6px 10px" onclick="removeItem(${i})">✕</button></div>`;
+  }).join("");
+}
+window.removeItem = i => { basket.splice(i,1); renderBasket(); };
+
+function addToBasket(tag){
+  if (basket.some(b=>b.tag===tag)){ log(`"${tag}" already in basket`); return; }
+  basket.push({tag, status:"pending", asset:null, matches:[]});
+  log(`Added "${tag}" to basket`); renderBasket();
+}
+
+els.resolveAll.onclick = async () => {
+  for (const b of basket){
+    if (b.status==="hit") continue;
+    try{
+      const {matches} = await lookup(b.tag);
+      if (matches.length===1){ b.status="hit"; b.asset=matches[0]; }
+      else if (matches.length===0){ b.status="miss"; }
+      else { b.status="multi"; b.matches=matches; }
+    }catch(e){ b.status="miss"; log("Resolve error: "+e.message,"err"); }
+    renderBasket();
+  }
+  log("Resolve complete", "ok");
+};
+els.openAll.onclick = () => {
+  const hits = basket.filter(b=>b.status==="hit");
+  log(`Opening ${hits.length} assets (browser may block multiple pop-ups)`);
+  hits.forEach(b => window.open(assetUrl(b.asset.assetId), "_blank", "noopener"));
+};
+els.bulkUpdate.onclick = () => {
+  const ids = basket.filter(b=>b.status==="hit").map(b=>b.asset.assetId);
+  log(`Bulk update would POST ${ids.length} IDs to the proxy → entityUpdateRecord: [${ids.join(", ")}]`);
+  alert("PoC stub: in live mode this posts the resolved asset IDs + the field changes to the proxy,\nwhich calls data::entityUpdateRecord per asset.\n\nIDs: " + ids.join(", "));
+};
+els.clearBasket.onclick = () => { basket.length=0; renderBasket(); log("Basket cleared"); };
+
+// ---- Entry points ----
+function onTag(tag){
+  tag = (tag||"").trim(); if(!tag) return;
+  if (scanMode==="single") handleSingle(tag); else addToBasket(tag);
+}
+
+// ---- Camera ----
+async function startCamera(){
+  try{
+    qr = new Html5Qrcode("reader", { verbose:false });
+    await qr.start({facingMode:"environment"}, {fps:10, qrbox:{width:260,height:160}},
+      (text)=>{
+        const now=Date.now();
+        if (text===lastTag && now-lastTs<1500) return; // debounce
+        lastTag=text; lastTs=now;
+        log(`Scanned: ${text}`); onTag(text);
+      },
+      ()=>{} // per-frame decode failures: ignore
+    );
+    els.startBtn.disabled=true; els.stopBtn.disabled=false;
+    log("Camera started", "ok");
+  }catch(e){
+    log("Camera unavailable: "+e.message+" — use manual entry, and test the camera from a deployed HTTPS URL.","err");
+  }
+}
+async function stopCamera(){
+  try{ if(qr){ await qr.stop(); await qr.clear(); qr=null; } }catch(e){}
+  els.startBtn.disabled=false; els.stopBtn.disabled=true; log("Camera stopped");
+}
+els.startBtn.onclick = startCamera;
+els.stopBtn.onclick = stopCamera;
+els.manualBtn.onclick = ()=>{ onTag(els.manualTag.value); els.manualTag.value=""; };
+els.manualTag.addEventListener("keydown", e=>{ if(e.key==="Enter") els.manualBtn.click(); });
+
+// ---- Mode switch ----
+document.querySelectorAll("#scanMode button").forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll("#scanMode button").forEach(b=>b.classList.remove("on"));
+    btn.classList.add("on");
+    scanMode = btn.dataset.m;
+    els.singleCard.classList.toggle("hide", scanMode!=="single");
+    els.bulkCard.classList.toggle("hide", scanMode!=="bulk");
+  };
+});
+
+log("Ready — Demo mode. Try the demo tags, or wire up a proxy for Live mode (see Settings).");
+</script>
+</body>
+</html>
